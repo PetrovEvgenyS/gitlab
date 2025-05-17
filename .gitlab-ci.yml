@@ -1,0 +1,52 @@
+stages:
+  - build # Сборка образа приложения
+  - test # Тестирование приложения в контейнерах
+  - cleanup # Очистка ресурсов после тестов
+  - push # Публикация образа в реестр
+
+# Переменные окружения, используемые во всех заданиях
+variables:
+  # Версия приложения
+  APP_VERSION: v1.0
+
+build:
+  stage: build
+  script:
+    # Сборка Docker-образа приложения с тегом, включающим версию и ID пайплайна
+    - docker build -t $CI_REGISTRY_IMAGE:$APP_VERSION.$CI_PIPELINE_ID .
+
+test:
+  stage: test
+  image:
+    name: docker/compose:1.29.2 # Используем образ с docker-compose
+    entrypoint: [""] # Сброс entrypoint для корректной работы
+  script:
+    # Запуск docker-compose с проектом, уникальным для пайплайна
+    # --abort-on-container-exit: остановить все контейнеры при завершении любого
+    # --exit-code-from test: вернуть код выхода контейнера test
+    # --quiet-pull: минимизировать вывод при pull образов
+    - docker-compose -p "$CI_PROJECT_NAME"_"$CI_PIPELINE_ID" up
+      --abort-on-container-exit
+      --exit-code-from test
+      --quiet-pull
+
+cleanup:
+  stage: cleanup
+  image:
+    name: docker/compose:1.29.2
+    entrypoint: [""] # Сброс entrypoint
+  script:
+    # Остановка и удаление всех контейнеров и ресурсов проекта
+    - docker-compose -p "$CI_PROJECT_NAME"_"$CI_PIPELINE_ID" down
+  when: always # Выполнять всегда, даже если предыдущие шаги завершились с ошибкой
+
+push:
+  stage: push
+  before_script:
+    # Аутентификация в реестре GitLab Container Registry
+    - docker login -u gitlab-ci-token -p $CI_JOB_TOKEN $CI_REGISTRY
+  script:
+    # Публикация собранного образа в реестр
+    - docker push $CI_REGISTRY_IMAGE:$APP_VERSION.$CI_PIPELINE_ID
+  only:
+    - main # Выполнять только для ветки main
