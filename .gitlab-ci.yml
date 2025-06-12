@@ -76,8 +76,8 @@ deploy:
       --wait
       --timeout 3m
       --atomic
-      # --set deployment.container.image=$CI_REGISTRY_IMAGE           :  Указание полного пути к образу из GitLab Registry
-      # --set deployment.container.tag=$APP_VERSION.$CI_PIPELINE_ID   :  Указание тега образа, содержащего версию и ID текущего пайплайна
+      # --set deployment.container.image=$CI_REGISTRY_IMAGE           :  Переопределение docker-образа
+      # --set deployment.container.tag=$APP_VERSION.$CI_PIPELINE_ID   :  Переопределение тега
       # --wait        : Ожидание завершения деплоя всех ресурсов
       # --timeout 3m  : Установка таймаута выполнения — 3 минуты
       # --atomic      : В случае ошибки — выполнить откат изменений
