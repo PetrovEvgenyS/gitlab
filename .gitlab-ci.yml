@@ -3,16 +3,21 @@ stages:
   - test # Тестирование приложения в контейнерах
   - cleanup # Очистка ресурсов после тестов
   - push # Публикация образа в реестр
+  - deploy # Развёртывание приложения в Kubernetes
 
 # Переменные окружения, используемые во всех заданиях
 variables:
   # Версия приложения
   APP_VERSION: v1.0
+  K8S_API_URL: http://10.100.10.200:8443
+  KUBE_NAMESPACE: app-namespace
 
 build:
   stage: build
   script:
     # Сборка Docker-образа приложения с тегом, включающим версию и ID пайплайна
+    # $CI_REGISTRY_IMAGE = gitlab.lan:5050/ben/quotegenerator
+    # Пример образа: gitlab.lan:5050/ben/quotegenerator:v1.0.64
     - docker build -t $CI_REGISTRY_IMAGE:$APP_VERSION.$CI_PIPELINE_ID .
 
 test:
@@ -22,9 +27,10 @@ test:
     entrypoint: [""] # Сброс entrypoint для корректной работы
   script:
     # Запуск docker-compose с проектом, уникальным для пайплайна
-    # --abort-on-container-exit: остановить все контейнеры при завершении любого
-    # --exit-code-from test: вернуть код выхода контейнера test
-    # --quiet-pull: минимизировать вывод при pull образов
+    # --abort-on-container-exit : остановить все контейнеры при завершении любого
+    # --exit-code-from test     : вернуть код выхода контейнера test
+    # --quiet-pull              : минимизировать вывод при pull образов
+    - echo $CI_PROJECT_NAME
     - docker-compose -p "$CI_PROJECT_NAME"_"$CI_PIPELINE_ID" up
       --abort-on-container-exit
       --exit-code-from test
@@ -50,3 +56,37 @@ push:
     - docker push $CI_REGISTRY_IMAGE:$APP_VERSION.$CI_PIPELINE_ID
   only:
     - main # Выполнять только для ветки main
+
+deploy:
+  stage: deploy
+  image: centosadmin/kubernetes-helm:3.17.2 # Образ с установленными kubectl и helm
+  script:
+    # Настройка kubectl: добавление кластера с пропуском проверки TLS и указанием адреса API сервера
+    - kubectl config set-cluster k8s --insecure-skip-tls-verify=true --server=$K8S_API_URL
+    # Добавление учётных данных (токена CI/CD) для подключения к кластеру
+    - kubectl config set-credentials ci --token=$K8S_CI_TOKEN
+    # Создание контекста, объединяющего кластер и пользователя
+    - kubectl config set-context ci --cluster=k8s --user=ci
+    # Активация созданного контекста для kubectl
+    - kubectl config use-context ci
+    # Установка (или обновление) Helm-релиза приложения
+    - helm upgrade --install $CI_PROJECT_NAME .helm
+      --set deployment.container.image=$CI_REGISTRY_IMAGE
+      --set deployment.container.tag=$APP_VERSION.$CI_PIPELINE_ID
+      --wait
+      --timeout 3m
+      --atomic
+      # --set deployment.container.image=$CI_REGISTRY_IMAGE           :  Указание полного пути к образу из GitLab Registry
+      # --set deployment.container.tag=$APP_VERSION.$CI_PIPELINE_ID   :  Указание тега образа, содержащего версию и ID текущего пайплайна
+      # --wait        : Ожидание завершения деплоя всех ресурсов
+      # --timeout 3m  : Установка таймаута выполнения — 3 минуты
+      # --atomic      : В случае ошибки — выполнить откат изменений
+
+    # Вывод информации обо всех ресурсах в целевом namespace
+    - echo "Проверка установленных ресурсов в Kubernetes:"
+    - kubectl get all -n $KUBE_NAMESPACE
+
+  only:
+    - main # Выполняется только для ветки main (основной)
+  dependencies:
+    - push # Запускается только если успешно выполнен этап push
