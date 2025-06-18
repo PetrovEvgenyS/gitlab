@@ -1,9 +1,10 @@
 stages:
-  - build # Сборка образа приложения
-  - test # Тестирование приложения в контейнерах
-  - cleanup # Очистка ресурсов после тестов
-  - push # Публикация образа в реестр
-  - deploy # Развёртывание приложения в Kubernetes
+  - build     # Сборка образа приложения
+  - test      # Тестирование приложения в контейнерах
+  - cleanup   # Очистка ресурсов после тестов
+  - push      # Публикация образа в реестр
+  - deploy    # Развёртывание приложения в Kubernetes
+  - rollback  # Ручной откат приложения к предыдущей версии при необходимости
 
 # Переменные окружения, используемые во всех заданиях
 variables:
@@ -71,6 +72,7 @@ deploy:
     - kubectl config use-context ci
     # Установка (или обновление) Helm-релиза приложения
     - helm upgrade --install $CI_PROJECT_NAME .helm
+      --namespace $KUBE_NAMESPACE
       --set deployment.container.image=$CI_REGISTRY_IMAGE
       --set deployment.container.tag=$APP_VERSION.$CI_PIPELINE_ID
       --wait
@@ -85,8 +87,25 @@ deploy:
     # Вывод информации обо всех ресурсах в целевом namespace
     - echo "Проверка установленных ресурсов в Kubernetes:"
     - kubectl get all -n $KUBE_NAMESPACE
+    - helm list -n $KUBE_NAMESPACE
 
   only:
-    - main # Выполняется только для ветки main (основной)
+    - main # Выполняется только для ветки main
   dependencies:
     - push # Запускается только если успешно выполнен этап push
+
+rollback:
+  stage: rollback
+  image: centosadmin/kubernetes-helm:3.17.2 # Образ с установленными kubectl и helm
+  script:
+    - kubectl config set-cluster k8s --insecure-skip-tls-verify=true --server=$K8S_API_URL
+    - kubectl config set-credentials ci --token=$K8S_CI_TOKEN
+    - kubectl config set-context ci --cluster=k8s --user=ci
+    - kubectl config use-context ci
+    - helm rollback $CI_PROJECT_NAME 0
+      --namespace $KUBE_NAMESPACE
+      --wait
+      --timeout 3m
+  only:
+    - main # Выполняется только для ветки main
+  when: manual
