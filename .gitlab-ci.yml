@@ -108,4 +108,4 @@ rollback:
       --timeout 3m
   only:
     - main # Выполняется только для ветки main
-  when: manual
+  when: manual  # Ручной запуск, не выполняется автоматически
